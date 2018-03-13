@@ -1,0 +1,8 @@
+[database]
+    dbname = 'admin_section_go'
+    dbusername = 'admin_section_go'
+    dbpassword = 'admin_section_go'
+    dbport = 5432
+
+[app]
+    port = 8080
