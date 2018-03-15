@@ -132,12 +132,18 @@ func (a *App) tokenAuth(w http.ResponseWriter, r *http.Request) {
 		respondWithJSON(w, http.StatusOK, tokenStruct{
 			tokenString,
 		})
+	} else {
+		respondWithError(w, http.StatusUnauthorized, "Authorization Error")
 	}
 }
 
 func (a *App) tokenRefresh(w http.ResponseWriter, r *http.Request) {
 
-	token, claims := parseRequest(r)
+	token, claims, err := parseRequest(r)
+	if err != nil {
+		respondWithError(w, http.StatusUnauthorized, "Authorization Error: "+err.Error())
+		return
+	}
 
 	if token.Valid && claims.ExpiresAt > time.Now().Unix() {
 		claims.IssuedAt = time.Now().Unix()
@@ -147,16 +153,18 @@ func (a *App) tokenRefresh(w http.ResponseWriter, r *http.Request) {
 		respondWithJSON(w, http.StatusOK, tokenStruct{
 			tokenString,
 		})
+	} else {
+		respondWithError(w, http.StatusUnauthorized, "Authorization Error")
 	}
 }
 
-func parseRequest(r *http.Request) (*jwt.Token, ClaimsStruct) {
+func parseRequest(r *http.Request) (*jwt.Token, ClaimsStruct, error) {
 	tokenString := r.Header.Get("Authorization")
 	claims := ClaimsStruct{}
-	token, _ := jwt.ParseWithClaims(tokenString, &claims, func(token *jwt.Token) (interface{}, error) {
+	token, err := jwt.ParseWithClaims(tokenString, &claims, func(token *jwt.Token) (interface{}, error) {
 		return []byte(secret), nil
 	})
-	return token, claims
+	return token, claims, err
 }
 
 func (a *App) initializeRoutes() {
