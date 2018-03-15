@@ -19,6 +19,7 @@ type database struct {
 
 type app struct {
 	Port int
+	Secret string
 }
 
 func getConfig() config {

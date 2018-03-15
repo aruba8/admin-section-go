@@ -2,9 +2,6 @@ package main
 
 import (
 	"database/sql"
-	"crypto/sha256"
-	"fmt"
-	"encoding/base64"
 )
 
 type account struct {
@@ -22,12 +19,10 @@ func (a *account) getAccountByUsername(db *sql.DB) error {
 }
 
 func (a *account) insertAccount(db *sql.DB) error {
-	hashedPassword := sha256.Sum256([]byte(a.Password))
-	hashedPasswordString := base64.URLEncoding.EncodeToString(hashedPassword[:])
+	hashedPassword, _ := HashPassword(a.Password)
 	err := db.QueryRow("INSERT INTO accounts (username, password) VALUES ($1, $2) RETURNING id",
 		a.Username,
-		hashedPasswordString).Scan(&a.ID)
-
+		hashedPassword).Scan(&a.ID)
 	if err != nil {
 		return err
 	}
