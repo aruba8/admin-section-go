@@ -11,6 +11,7 @@ import (
 	"strconv"
 	"github.com/dgrijalva/jwt-go"
 	"time"
+	"strings"
 )
 
 type App struct {
@@ -73,33 +74,14 @@ func (a *App) addAccount(w http.ResponseWriter, r *http.Request) {
 	respondWithJSON(w, http.StatusOK, acc)
 }
 
-func (a *App) login(w http.ResponseWriter, r *http.Request) {
-	session, _ := store.Get(r, sessionCookieName)
-	var acc account
-	decoder := json.NewDecoder(r.Body)
-	if err := decoder.Decode(&acc); err != nil {
-		fmt.Println(err)
-		respondWithError(w, http.StatusBadRequest, "Invalid request payload")
-		return
-	}
-	defer r.Body.Close()
-
-	if validateAccount(acc.Username, acc.Password, a.DB) {
-		session.Values["authenticated"] = true
-		session.Save(r, w)
-	}
-}
-
-func (a *App) secret(w http.ResponseWriter, r *http.Request) {
-	// Print secret message
-	fmt.Fprintln(w, "The cake is a lie!")
-}
-
 func Guard(f http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		session, _ := store.Get(r, sessionCookieName)
-		// Check if user is authenticated
-		if auth, ok := session.Values["authenticated"].(bool); !ok || !auth {
+		token, claims, err := parseRequest(r)
+		if err != nil {
+			respondWithError(w, http.StatusForbidden, "Authorization Error: "+err.Error())
+			return
+		}
+		if !token.Valid || claims.ExpiresAt < time.Now().Unix() {
 			http.Error(w, "Forbidden", http.StatusForbidden)
 			return
 		}
@@ -130,7 +112,7 @@ func (a *App) tokenAuth(w http.ResponseWriter, r *http.Request) {
 		token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
 		tokenString, _ := token.SignedString([]byte(secret))
 		respondWithJSON(w, http.StatusOK, tokenStruct{
-			tokenString,
+			"JWT " + tokenString,
 		})
 	} else {
 		respondWithError(w, http.StatusUnauthorized, "Authorization Error")
@@ -151,7 +133,7 @@ func (a *App) tokenRefresh(w http.ResponseWriter, r *http.Request) {
 		token = jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
 		tokenString, _ := token.SignedString([]byte(secret))
 		respondWithJSON(w, http.StatusOK, tokenStruct{
-			tokenString,
+			"JWT" + tokenString,
 		})
 	} else {
 		respondWithError(w, http.StatusUnauthorized, "Authorization Error")
@@ -159,7 +141,11 @@ func (a *App) tokenRefresh(w http.ResponseWriter, r *http.Request) {
 }
 
 func parseRequest(r *http.Request) (*jwt.Token, ClaimsStruct, error) {
-	tokenString := r.Header.Get("Authorization")
+	authString := r.Header.Get("Authorization")
+	tokenString := "";
+	if authStringArr := strings.Split(authString, " "); len(authStringArr) == 2 && authStringArr[0] == "JWT" {
+		tokenString = authStringArr[1]
+	}
 	claims := ClaimsStruct{}
 	token, err := jwt.ParseWithClaims(tokenString, &claims, func(token *jwt.Token) (interface{}, error) {
 		return []byte(secret), nil
@@ -170,7 +156,6 @@ func parseRequest(r *http.Request) (*jwt.Token, ClaimsStruct, error) {
 func (a *App) initializeRoutes() {
 	a.Router.HandleFunc("/users", Guard(a.getUsers)).Methods("GET")
 	a.Router.HandleFunc("/accounts", a.addAccount).Methods("POST")
-	a.Router.HandleFunc("/login", a.login).Methods("POST")
 	a.Router.HandleFunc("/api-token-auth", a.tokenAuth).Methods("POST")
 	a.Router.HandleFunc("/api-token-refresh", a.tokenRefresh).Methods("POST")
 }
