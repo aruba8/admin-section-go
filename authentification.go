@@ -3,15 +3,12 @@ package main
 import (
 	"database/sql"
 	"golang.org/x/crypto/bcrypt"
-	"github.com/gorilla/sessions"
 	"math/rand"
 	"time"
 	"github.com/dgrijalva/jwt-go"
 )
 
-var sessionCookieName = "glsession"
 var secret = RandomString(12)
-var store = sessions.NewCookieStore([]byte(secret))
 
 func validateAccount(username string, password string, db *sql.DB) bool {
 	acc := account{Username: username}

@@ -39,6 +39,7 @@ func (a *App) Run(addr string) {
 func respondWithJSON(w http.ResponseWriter, code int, payload interface{}) {
 	response, _ := json.Marshal(payload)
 	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Access-Control-Allow-Origin", "*")
 	w.WriteHeader(code)
 	w.Write(response)
 }
@@ -76,6 +77,10 @@ func (a *App) addAccount(w http.ResponseWriter, r *http.Request) {
 
 func Guard(f http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == "OPTIONS" {
+			responseCors(w)
+			return
+		}
 		token, claims, err := parseRequest(r)
 		if err != nil {
 			respondWithError(w, http.StatusForbidden, "Authorization Error: "+err.Error())
@@ -90,6 +95,11 @@ func Guard(f http.HandlerFunc) http.HandlerFunc {
 }
 
 func (a *App) tokenAuth(w http.ResponseWriter, r *http.Request) {
+	if r.Method == "OPTIONS" {
+		responseCors(w)
+		return
+	}
+
 	var acc account
 	decoder := json.NewDecoder(r.Body)
 	if err := decoder.Decode(&acc); err != nil {
@@ -98,7 +108,6 @@ func (a *App) tokenAuth(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer r.Body.Close()
-
 	if validateAccount(acc.Username, acc.Password, a.DB) {
 		claims := ClaimsStruct{
 			acc.Username,
@@ -112,28 +121,45 @@ func (a *App) tokenAuth(w http.ResponseWriter, r *http.Request) {
 		token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
 		tokenString, _ := token.SignedString([]byte(secret))
 		respondWithJSON(w, http.StatusOK, tokenStruct{
-			"JWT " + tokenString,
+			tokenString,
 		})
 	} else {
 		respondWithError(w, http.StatusUnauthorized, "Authorization Error")
 	}
 }
 
-func (a *App) tokenRefresh(w http.ResponseWriter, r *http.Request) {
+type tokenRefrStruct struct {
+	Token string `json:"token"`
+}
 
-	token, claims, err := parseRequest(r)
-	if err != nil {
-		respondWithError(w, http.StatusUnauthorized, "Authorization Error: "+err.Error())
+
+func (a *App) tokenRefresh(w http.ResponseWriter, r *http.Request) {
+	if r.Method == "OPTIONS" {
+		responseCors(w)
 		return
 	}
-
+	var trs tokenRefrStruct
+	decoder := json.NewDecoder(r.Body)
+	if err := decoder.Decode(&trs); err != nil {
+		fmt.Println(err)
+		respondWithError(w, http.StatusBadRequest, "Invalid request payload")
+		return
+	}
+	defer r.Body.Close()
+	claims := ClaimsStruct{}
+	token, err := jwt.ParseWithClaims(trs.Token, &claims, func(token *jwt.Token) (interface{}, error) {
+		return []byte(secret), nil
+	})
+	if err != nil {
+		respondWithError(w, http.StatusBadRequest, "Invalid request payload")
+	}
 	if token.Valid && claims.ExpiresAt > time.Now().Unix() {
 		claims.IssuedAt = time.Now().Unix()
 		claims.ExpiresAt = time.Now().Add(time.Minute * 5).Unix()
 		token = jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
 		tokenString, _ := token.SignedString([]byte(secret))
 		respondWithJSON(w, http.StatusOK, tokenStruct{
-			"JWT" + tokenString,
+			tokenString,
 		})
 	} else {
 		respondWithError(w, http.StatusUnauthorized, "Authorization Error")
@@ -142,7 +168,7 @@ func (a *App) tokenRefresh(w http.ResponseWriter, r *http.Request) {
 
 func parseRequest(r *http.Request) (*jwt.Token, ClaimsStruct, error) {
 	authString := r.Header.Get("Authorization")
-	tokenString := "";
+	tokenString := ""
 	if authStringArr := strings.Split(authString, " "); len(authStringArr) == 2 && authStringArr[0] == "JWT" {
 		tokenString = authStringArr[1]
 	}
@@ -153,9 +179,62 @@ func parseRequest(r *http.Request) (*jwt.Token, ClaimsStruct, error) {
 	return token, claims, err
 }
 
+func (a *App) getUser(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	userId, err := strconv.Atoi(vars["id"])
+	if err != nil {
+		respondWithError(w, http.StatusBadRequest, "Invalid user ID")
+		return
+	}
+	u := user{ID: userId}
+	if err := u.getUserById(a.DB); err != nil {
+		switch err {
+		case sql.ErrNoRows:
+			respondWithError(w, http.StatusNotFound, "User not found")
+		default:
+			respondWithError(w, http.StatusInternalServerError, err.Error())
+		}
+		return
+	}
+	respondWithJSON(w, http.StatusOK, u)
+}
+
+func (a *App) addUser(w http.ResponseWriter, r *http.Request) {
+	var u user
+	decoder := json.NewDecoder(r.Body)
+	if err := decoder.Decode(&u); err != nil {
+		respondWithError(w, http.StatusInternalServerError, "Invalid request payload")
+	}
+
+	defer r.Body.Close()
+	if err := u.insertUser(a.DB); err != nil {
+		respondWithError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	respondWithJSON(w, http.StatusOK, u)
+}
+
+func responseCors(w http.ResponseWriter) {
+	addCorsHeader(w)
+	w.WriteHeader(http.StatusOK)
+}
+
+func addCorsHeader(w http.ResponseWriter) {
+	headers := w.Header()
+	headers.Add("Access-Control-Allow-Origin", "*")
+	headers.Add("Vary", "Origin")
+	headers.Add("Vary", "Access-Control-Request-Method")
+	headers.Add("Vary", "Access-Control-Request-Headers")
+	headers.Add("Access-Control-Allow-Headers", "Content-Type, Origin, Accept, Authorization")
+	headers.Add("Access-Control-Allow-Methods", "GET,POST,OPTIONS,DELETE,PUT")
+}
+
 func (a *App) initializeRoutes() {
-	a.Router.HandleFunc("/users", Guard(a.getUsers)).Methods("GET")
-	a.Router.HandleFunc("/accounts", a.addAccount).Methods("POST")
-	a.Router.HandleFunc("/api-token-auth", a.tokenAuth).Methods("POST")
-	a.Router.HandleFunc("/api-token-refresh", a.tokenRefresh).Methods("POST")
+	a.Router.HandleFunc("/users/", Guard(a.getUsers)).Methods("GET", "OPTIONS")
+	a.Router.HandleFunc("/users/", Guard(a.addUser)).Methods("POST", "OPTIONS")
+	a.Router.HandleFunc("/users/{id}/", Guard(a.getUser)).Methods("GET", "OPTIONS")
+	a.Router.HandleFunc("/accounts/", a.addAccount).Methods("POST", "OPTIONS")
+	a.Router.HandleFunc("/api-token-auth/", a.tokenAuth).Methods("POST", "OPTIONS")
+	a.Router.HandleFunc("/api-token-refresh/", a.tokenRefresh).Methods("POST", "OPTIONS")
 }

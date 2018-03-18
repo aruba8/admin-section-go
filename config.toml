@@ -5,5 +5,5 @@
     dbport = 5432
 
 [app]
-    port = 8080
+    port = 8000
     secret = 'secasdsret'

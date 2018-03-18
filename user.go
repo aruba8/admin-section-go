@@ -10,8 +10,18 @@ type user struct {
 	Email      string `json:"email"`
 }
 
-func (u *user) getUser(db *sql.DB) error {
-	return db.QueryRow("SELECT * FROM users WHERE id=$1", u.ID).Scan(&u.FirstName, &u.LastName, &u.MiddleName, &u.Email)
+func (u *user) getUserById(db *sql.DB) error {
+	return db.QueryRow("SELECT * FROM users WHERE id=$1", u.ID).Scan(
+		&u.ID, &u.FirstName, &u.LastName, &u.MiddleName, &u.Email)
+}
+
+func (u *user) insertUser(db *sql.DB) error {
+	err := db.QueryRow("INSERT INTO users (firstname, lastname, middlename, email) VALUES ($1, $2, $3, $4) RETURNING id",
+		u.FirstName, u.LastName, u.MiddleName, u.Email).Scan(&u.ID)
+	if err != nil {
+		return err
+	}
+	return nil
 }
 
 func (u *user) getUsers(db *sql.DB) ([]user, error) {
@@ -25,7 +35,7 @@ func (u *user) getUsers(db *sql.DB) ([]user, error) {
 	users := []user{}
 	for rows.Next() {
 		var u user
-		if err := rows.Scan(&u.FirstName, &u.LastName, &u.MiddleName, &u.Email); err != nil {
+		if err := rows.Scan(&u.ID, &u.FirstName, &u.LastName, &u.MiddleName, &u.Email); err != nil {
 			return nil, err
 		}
 		users = append(users, u)
