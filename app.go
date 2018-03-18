@@ -37,7 +37,10 @@ func (a *App) Run(addr string) {
 }
 
 func respondWithJSON(w http.ResponseWriter, code int, payload interface{}) {
-	response, _ := json.Marshal(payload)
+	var response []byte
+	if payload != nil {
+		response, _ = json.Marshal(payload)
+	}
 	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("Access-Control-Allow-Origin", "*")
 	w.WriteHeader(code)
@@ -132,7 +135,6 @@ type tokenRefrStruct struct {
 	Token string `json:"token"`
 }
 
-
 func (a *App) tokenRefresh(w http.ResponseWriter, r *http.Request) {
 	if r.Method == "OPTIONS" {
 		responseCors(w)
@@ -152,6 +154,7 @@ func (a *App) tokenRefresh(w http.ResponseWriter, r *http.Request) {
 	})
 	if err != nil {
 		respondWithError(w, http.StatusBadRequest, "Invalid request payload")
+		return
 	}
 	if token.Valid && claims.ExpiresAt > time.Now().Unix() {
 		claims.IssuedAt = time.Now().Unix()
@@ -205,19 +208,46 @@ func (a *App) addUser(w http.ResponseWriter, r *http.Request) {
 	if err := decoder.Decode(&u); err != nil {
 		respondWithError(w, http.StatusInternalServerError, "Invalid request payload")
 	}
-
 	defer r.Body.Close()
 	if err := u.insertUser(a.DB); err != nil {
 		respondWithError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+	respondWithJSON(w, http.StatusCreated, u)
+}
 
+func (a *App) updateUser(w http.ResponseWriter, r *http.Request) {
+	var u user
+	decoder := json.NewDecoder(r.Body)
+	if err := decoder.Decode(&u); err != nil {
+		respondWithError(w, http.StatusInternalServerError, "Invalid request payload")
+	}
+	defer r.Body.Close()
+	if err := u.updateUser(a.DB); err != nil {
+		respondWithError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
 	respondWithJSON(w, http.StatusOK, u)
 }
 
 func responseCors(w http.ResponseWriter) {
 	addCorsHeader(w)
 	w.WriteHeader(http.StatusOK)
+}
+
+func (a *App) deleteUser(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	userId, err := strconv.Atoi(vars["id"])
+	if err != nil {
+		respondWithError(w, http.StatusBadRequest, "Invalid user ID")
+		return
+	}
+	u := user{ID: userId}
+	if err := u.deleteUser(a.DB); err != nil {
+		respondWithError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	respondWithJSON(w, http.StatusNoContent, nil)
 }
 
 func addCorsHeader(w http.ResponseWriter) {
@@ -234,6 +264,8 @@ func (a *App) initializeRoutes() {
 	a.Router.HandleFunc("/users/", Guard(a.getUsers)).Methods("GET", "OPTIONS")
 	a.Router.HandleFunc("/users/", Guard(a.addUser)).Methods("POST", "OPTIONS")
 	a.Router.HandleFunc("/users/{id}/", Guard(a.getUser)).Methods("GET", "OPTIONS")
+	a.Router.HandleFunc("/users/{id}/", Guard(a.updateUser)).Methods("PUT", "OPTIONS")
+	a.Router.HandleFunc("/users/{id}/", Guard(a.deleteUser)).Methods("DELETE", "OPTIONS")
 	a.Router.HandleFunc("/accounts/", a.addAccount).Methods("POST", "OPTIONS")
 	a.Router.HandleFunc("/api-token-auth/", a.tokenAuth).Methods("POST", "OPTIONS")
 	a.Router.HandleFunc("/api-token-refresh/", a.tokenRefresh).Methods("POST", "OPTIONS")
