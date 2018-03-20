@@ -230,11 +230,6 @@ func (a *App) updateUser(w http.ResponseWriter, r *http.Request) {
 	respondWithJSON(w, http.StatusOK, u)
 }
 
-func responseCors(w http.ResponseWriter) {
-	addCorsHeader(w)
-	w.WriteHeader(http.StatusOK)
-}
-
 func (a *App) deleteUser(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	userId, err := strconv.Atoi(vars["id"])
@@ -250,6 +245,26 @@ func (a *App) deleteUser(w http.ResponseWriter, r *http.Request) {
 	respondWithJSON(w, http.StatusNoContent, nil)
 }
 
+func (a *App) getWorkers(w http.ResponseWriter, r *http.Request) {
+	worker := worker{}
+	workers, err := worker.getWorkers(a.DB)
+	if err != nil {
+		respondWithError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	respondWithJSON(w, http.StatusOK, workers)
+}
+
+func (a *App) getWorkerTypes(w http.ResponseWriter, r *http.Request) {
+	wt := workerType{}
+	workerTypes, err := wt.getWorkTypes(a.DB)
+	if err != nil {
+		respondWithError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	respondWithJSON(w, http.StatusOK, workerTypes)
+}
+
 func addCorsHeader(w http.ResponseWriter) {
 	headers := w.Header()
 	headers.Add("Access-Control-Allow-Origin", "*")
@@ -260,7 +275,14 @@ func addCorsHeader(w http.ResponseWriter) {
 	headers.Add("Access-Control-Allow-Methods", "GET,POST,OPTIONS,DELETE,PUT")
 }
 
+func responseCors(w http.ResponseWriter) {
+	addCorsHeader(w)
+	w.WriteHeader(http.StatusOK)
+}
+
 func (a *App) initializeRoutes() {
+	a.Router.HandleFunc("/worker_types/", Guard(a.getWorkerTypes)).Methods("GET", "OPTIONS")
+	a.Router.HandleFunc("/workers/", Guard(a.getWorkers)).Methods("GET", "OPTIONS")
 	a.Router.HandleFunc("/users/", Guard(a.getUsers)).Methods("GET", "OPTIONS")
 	a.Router.HandleFunc("/users/", Guard(a.addUser)).Methods("POST", "OPTIONS")
 	a.Router.HandleFunc("/users/{id}/", Guard(a.getUser)).Methods("GET", "OPTIONS")
