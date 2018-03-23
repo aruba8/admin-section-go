@@ -265,6 +265,82 @@ func (a *App) getWorkerTypes(w http.ResponseWriter, r *http.Request) {
 	respondWithJSON(w, http.StatusOK, workerTypes)
 }
 
+func (a *App) getWorker(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	workerId, err := strconv.Atoi(vars["id"])
+	if err != nil {
+		respondWithError(w, http.StatusBadRequest, "Invalid worker ID")
+		return
+	}
+
+	w_ := worker{ID: workerId}
+	if err := w_.getWorkerById(a.DB); err != nil {
+		switch err {
+		case sql.ErrNoRows:
+			respondWithError(w, http.StatusNotFound, "Worker not found")
+		default:
+			respondWithError(w, http.StatusInternalServerError, err.Error())
+		}
+		return
+	}
+	respondWithJSON(w, http.StatusOK, w_)
+
+}
+
+func (a *App) updateWorker(w http.ResponseWriter, r *http.Request) {
+	var w_ worker
+	decoder := json.NewDecoder(r.Body)
+	if err := decoder.Decode(&w_); err != nil {
+		respondWithError(w, http.StatusInternalServerError, "Invalid request payload")
+	}
+	defer r.Body.Close()
+	wt := workerType{ID: w_.WorkerType.ID}
+	if err := wt.getWorkerTypeById(a.DB); err != nil {
+		switch err {
+		case sql.ErrNoRows:
+			respondWithError(w, http.StatusInternalServerError, "WorkerType not found")
+			return
+		default:
+			respondWithError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+	}
+	if err := w_.updateWorker(a.DB, wt); err != nil {
+		respondWithError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	respondWithJSON(w, http.StatusOK, w_)
+}
+
+func (a *App) addWorker(w http.ResponseWriter, r *http.Request) {
+	var w_ worker
+	decoder := json.NewDecoder(r.Body)
+	if err := decoder.Decode(&w_); err != nil {
+		respondWithError(w, http.StatusInternalServerError, "Invalid request payload")
+	}
+	defer r.Body.Close()
+	if err := w_.addWorker(a.DB); err != nil {
+		respondWithError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	respondWithJSON(w, http.StatusCreated, w_)
+}
+
+func (a *App) deleteWorker(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	workerId, err := strconv.Atoi(vars["id"])
+	if err != nil {
+		respondWithError(w, http.StatusBadRequest, "Invalid worker ID")
+		return
+	}
+	w_ := worker{ID: workerId}
+	if err := w_.deleteWorker(a.DB); err != nil {
+		respondWithError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	respondWithJSON(w, http.StatusNoContent, nil)
+}
+
 func addCorsHeader(w http.ResponseWriter) {
 	headers := w.Header()
 	headers.Add("Access-Control-Allow-Origin", "*")
@@ -272,7 +348,7 @@ func addCorsHeader(w http.ResponseWriter) {
 	headers.Add("Vary", "Access-Control-Request-Method")
 	headers.Add("Vary", "Access-Control-Request-Headers")
 	headers.Add("Access-Control-Allow-Headers", "Content-Type, Origin, Accept, Authorization")
-	headers.Add("Access-Control-Allow-Methods", "GET,POST,OPTIONS,DELETE,PUT")
+	headers.Add("Access-Control-Allow-Methods", "GET,POST,OPTIONS,DELETE,PATCH")
 }
 
 func responseCors(w http.ResponseWriter) {
@@ -283,10 +359,14 @@ func responseCors(w http.ResponseWriter) {
 func (a *App) initializeRoutes() {
 	a.Router.HandleFunc("/worker_types/", Guard(a.getWorkerTypes)).Methods("GET", "OPTIONS")
 	a.Router.HandleFunc("/workers/", Guard(a.getWorkers)).Methods("GET", "OPTIONS")
+	a.Router.HandleFunc("/workers/", Guard(a.addWorker)).Methods("POST", "OPTIONS")
+	a.Router.HandleFunc("/workers/{id}/", Guard(a.getWorker)).Methods("GET", "OPTIONS")
+	a.Router.HandleFunc("/workers/{id}/", Guard(a.updateWorker)).Methods("PATCH", "OPTIONS")
+	a.Router.HandleFunc("/workers/{id}/", Guard(a.deleteWorker)).Methods("DELETE", "OPTIONS")
 	a.Router.HandleFunc("/users/", Guard(a.getUsers)).Methods("GET", "OPTIONS")
 	a.Router.HandleFunc("/users/", Guard(a.addUser)).Methods("POST", "OPTIONS")
 	a.Router.HandleFunc("/users/{id}/", Guard(a.getUser)).Methods("GET", "OPTIONS")
-	a.Router.HandleFunc("/users/{id}/", Guard(a.updateUser)).Methods("PUT", "OPTIONS")
+	a.Router.HandleFunc("/users/{id}/", Guard(a.updateUser)).Methods("PATCH", "OPTIONS")
 	a.Router.HandleFunc("/users/{id}/", Guard(a.deleteUser)).Methods("DELETE", "OPTIONS")
 	a.Router.HandleFunc("/accounts/", a.addAccount).Methods("POST", "OPTIONS")
 	a.Router.HandleFunc("/api-token-auth/", a.tokenAuth).Methods("POST", "OPTIONS")

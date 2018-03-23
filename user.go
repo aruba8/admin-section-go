@@ -27,8 +27,8 @@ func (u *user) insertUser(db *sql.DB) error {
 }
 
 func (u *user) updateUser(db *sql.DB) error {
-	err := db.QueryRow("UPDATE users SET firstname=$1, lastname=$2, middlename=$3, email=$4 WHERE id=$5 RETURNING id, firstname, lastname, middlename, email",
-		u.FirstName, u.LastName, u.MiddleName, u.Email, u.ID).Scan(&u.ID, &u.FirstName, &u.LastName, &u.MiddleName, &u.Email)
+	_, err := db.Exec("UPDATE users SET firstname=$1, lastname=$2, middlename=$3, email=$4 WHERE id=$5 RETURNING id, firstname, lastname, middlename, email",
+		u.FirstName, u.LastName, u.MiddleName, u.Email, u.ID)
 	if err != nil {
 		return err
 	}
